@@ -5,8 +5,27 @@ source "${LIB_PATH}/config.sh"
 source "${LIB_PATH}/etcd.sh"
 source "${LIB_PATH}/mysql.sh"
 source "${LIB_PATH}/proxysql.sh"
+source "${LIB_PATH}/backup.sh"
+source "${LIB_PATH}/restore.sh"
 
 main() {
+    # Validate required environment variables
+    local required_vars=(
+        "ETCDCTL_ENDPOINTS"
+        "ETCDCTL_USER"
+        "MYSQL_REPL_USERNAME"
+        "MYSQL_REPL_PASSWORD"
+        "PROXYSQL_ADMIN_USER"
+        "PROXYSQL_ADMIN_PASSWORD"
+    )
+
+    for var in "${required_vars[@]}"; do
+        if [ -z "${!var}" ]; then
+            echo "Error: Required environment variable $var is not set" >&2
+            exit 1
+        fi
+    done
+
     local check_interval=${CHECK_INTERVAL:-5}
 
     echo "Starting MySQL Cluster Coordinator..."
@@ -17,6 +36,9 @@ main() {
         echo "Fatal: Could not connect to ProxySQL admin interface"
         exit 1
     fi
+
+    # Start backup schedule
+    setup_backup_schedule
 
     while true; do
         # Get registered nodes
@@ -115,6 +137,30 @@ check_cluster_health() {
     if [ -n "$txn_cmds" ]; then
         execute_transaction "$txn_cmds"
     fi
+}
+
+setup_backup_schedule() {
+    if ! validate_backup_config; then
+        echo "Warning: Backup configuration invalid, backups disabled"
+        return 1
+    fi
+
+    # Ensure cron is installed and running
+    if ! command -v cron >/dev/null 2>&1; then
+        echo "Error: cron is not installed" >&2
+        return 1
+    fi
+
+    # Start cron if not running
+    if ! pgrep cron >/dev/null; then
+        cron
+    fi
+
+    # Create cron entry for every 6 hours
+    echo "0 */6 * * * /usr/local/bin/proxysql-backup-runner >> /var/log/proxysql_backup.log 2>&1" | crontab -
+
+    echo "Backup scheduler configured via cron"
+    return 0
 }
 
 handle_master_failover() {

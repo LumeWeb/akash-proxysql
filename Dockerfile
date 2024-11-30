@@ -33,7 +33,9 @@ RUN apt-get update && apt-get install -y \
     bash \
     curl \
     etcd-client \
-    jq
+    jq \
+    s3cmd \
+    cron
 
  # Install Percona repository and tools
 RUN apt-get install -y wget lsb-release gnupg2 \
@@ -52,6 +54,14 @@ COPY --from=coordinator-build /usr/local/lib /usr/local/lib
 COPY --from=coordinator-build /entrypoint.sh /entrypoint.sh
 COPY --from=coordinator-build /paths.sh /paths.sh
 
+# Create backup directories and set permissions
+RUN mkdir -p /var/log /var/lib/proxysql/backups && \
+    chmod 755 /var/log /var/lib/proxysql/backups
+
+# Copy backup runner to usr/local/bin
+COPY bin/proxysql-backup-runner /usr/local/bin/
+RUN chmod +x /usr/local/bin/proxysql-backup-runner
+
 # Set environment variables
 ENV ETCDCTL_USER=root:root
 ENV MYSQL_USER=root
@@ -63,5 +73,13 @@ ENV CHECK_INTERVAL=5
 # ProxySQL hostgroup configuration (optional)
 # ENV PROXYSQL_WRITER_HOSTGROUP=10  # Default: 10
 # ENV PROXYSQL_READER_HOSTGROUP=20  # Default: 20
+
+# Backup configuration (optional)
+# ENV S3_ENDPOINT_URL=""           # Required for backups
+# ENV S3_BACKUP_BUCKET=""         # Required for backups
+# ENV S3_ACCESS_KEY=""            # Required for backups
+# ENV S3_SECRET_KEY=""            # Required for backups
+# ENV S3_BACKUP_PREFIX="proxysql/" # Optional, default: proxysql/
+# ENV BACKUP_RETENTION_DAYS="30"   # Optional, default: 30
 
 ENTRYPOINT ["/entrypoint.sh"]

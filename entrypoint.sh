@@ -1,6 +1,11 @@
 #!/bin/bash
 set -eo pipefail
 
+# Ensure cron is installed
+if ! command -v cron >/dev/null 2>&1; then
+    apt-get update && apt-get install -y cron
+fi
+
 # Source configurations
 source ./paths.sh
 source "${LIB_PATH}/process.sh"
