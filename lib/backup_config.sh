@@ -1,7 +1,15 @@
 #!/bin/bash
 
+# Export backup enabled status with default
+export BACKUP_ENABLED=${BACKUP_ENABLED:-true}
+
 # Validate required backup environment variables
 validate_backup_config() {
+    if [ "$BACKUP_ENABLED" != "true" ]; then
+        echo "Backups are disabled via BACKUP_ENABLED environment variable"
+        return 1
+    fi
+
     local required_vars=(
         "S3_ENDPOINT_URL"
         "S3_BACKUP_BUCKET"

@@ -37,8 +37,12 @@ main() {
         exit 1
     fi
 
-    # Start backup schedule
-    setup_backup_schedule
+    # Start backup schedule if enabled
+    if [ "$BACKUP_ENABLED" = "true" ]; then
+        setup_backup_schedule
+    else
+        echo "Backups are disabled via BACKUP_ENABLED environment variable"
+    fi
 
     while true; do
         # Get registered nodes

@@ -18,6 +18,12 @@ check_disk_space() {
 }
 
 backup_proxysql() {
+    # Check if backups are enabled
+    if [ "$BACKUP_ENABLED" != "true" ]; then
+        echo "Backups are disabled via BACKUP_ENABLED environment variable"
+        return 1
+    fi
+
     local timestamp=$(date +%Y%m%d_%H%M%S)
     local backup_file="proxysql_backup_${timestamp}.sql"
     local backup_path="/tmp/${backup_file}"
