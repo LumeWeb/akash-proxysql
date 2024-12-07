@@ -36,7 +36,7 @@ get_current_master() {
     if [ -z "$result" ] || [ "$result" = "null" ] || ! echo "$result" | jq -e '.kvs[0]' >/dev/null 2>&1; then
         return 0
     fi
-    echo "$result" | jq -r '.kvs[0].value // empty' | base64 -d
+    echo "$result" | jq -r '.kvs[0].value | @base64d'
 }
 
 update_node_status() {
@@ -88,14 +88,10 @@ update_slave_status() {
         \"replication_lag\": \"$lag\"
     }"
     
-    # Base64 encode the JSON
-    local encoded_json
-    encoded_json=$(echo "$json" | base64)
-    
     # Create atomic transaction
     local txn_cmds="compare create $ETCD_SLAVES_PREFIX/$node = ''\n"
-    txn_cmds+="success put $ETCD_SLAVES_PREFIX/$node '$encoded_json'\n"
-    txn_cmds+="failure put $ETCD_SLAVES_PREFIX/$node '$encoded_json'\n"
+    txn_cmds+="success put $ETCD_SLAVES_PREFIX/$node '$json'\n"
+    txn_cmds+="failure put $ETCD_SLAVES_PREFIX/$node '$json'\n"
     
     execute_transaction "$txn_cmds"
 }
@@ -108,17 +104,12 @@ get_node_info() {
         return 1
     fi
     
-    # Get node info directly
+    # Get node info and decode from base64 if needed
     local result
-    result=$(etcdctl --insecure-transport --insecure-skip-tls-verify get "$ETCD_NODES_PREFIX/$node" --print-value-only)
+    result=$(etcdctl --insecure-transport --insecure-skip-tls-verify get "$ETCD_NODES_PREFIX/$node" -w json)
     
-    if [ -n "$result" ]; then
-        # Try to decode if base64 encoded, otherwise return as-is
-        if echo "$result" | base64 -d >/dev/null 2>&1; then
-            echo "$result" | base64 -d
-        else
-            echo "$result"
-        fi
+    if [ -n "$result" ] && [ "$result" != "null" ]; then
+        echo "$result" | jq -r '.kvs[0].value | @base64d'
     else
         echo "{\"host\":\"\",\"port\":\"\",\"role\":\"\",\"status\":\"unknown\"}"
         return 1
