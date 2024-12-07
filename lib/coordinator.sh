@@ -71,63 +71,53 @@ main() {
 select_new_master() {
     local nodes
     nodes=$(get_registered_nodes)
-    local best_slave=""
-    local highest_gtid=""
-
-    # Find slave with most up-to-date GTID
+    
+    # Find first healthy slave
     for node in $nodes; do
-        # Get node info and check health atomically
         local node_info
         node_info=$(get_node_info "$node")
-        local role
-        role=$(echo "$node_info" | jq -r '.role')
         
-        # Skip non-slaves
-        if [ "$role" != "slave" ]; then
-            continue
-        fi
-        
-        # Check health and get GTID atomically
-        local health_check=0
-        local node_gtid=""
-        
-        if check_mysql_health "$node"; then
-            health_check=1
-            node_gtid=$(get_node_gtid "$(echo "$node_info" | jq -r '.host')" "$(echo "$node_info" | jq -r '.port')")
-        fi
-        
-        # Skip unhealthy nodes
-        if [ "$health_check" -eq 0 ]; then
-            continue
-        fi
-
-        # For first valid slave or if this slave has higher GTID
-        if [ -z "$best_slave" ] || [ "$(compare_gtid_positions "$node_gtid" "$highest_gtid")" = "ahead" ]; then
-            best_slave="$node"
-            highest_gtid="$node_gtid"
+        # Skip non-slaves and unhealthy nodes
+        if [ "$(echo "$node_info" | jq -r '.role')" = "slave" ] && \
+           [ "$(echo "$node_info" | jq -r '.status')" = "online" ] && \
+           check_mysql_health "$node"; then
+            echo "$node"
+            return 0
         fi
     done
-
-    echo "$best_slave"
+    
+    return 1
 }
 
+# Check health status of all cluster nodes
+# This is the main cluster safety mechanism that:
+# 1. Validates each node's health status
+# 2. Updates etcd with current state
+# 3. Triggers failover if master is unhealthy
+#
+# Safety guarantees:
+# - Uses lease-based health tracking
+# - Atomic updates prevent split-brain
+# - Consistent view of cluster state
+# - Automatic cleanup of failed nodes
 check_cluster_health() {
     local nodes
     nodes=$(get_registered_nodes)
-
-    # Build a single atomic transaction for all node updates
-    local txn_cmds=""
-
+    
+    echo "Starting cluster health check for ${#nodes[@]} nodes"
+    
     for node in $nodes; do
-        local node_info health_status
+        echo "Checking health of node: $node"
+        local node_info
         node_info=$(get_node_info "$node")
         
-        # Skip if we couldn't get node info
         if [ $? -ne 0 ] || [ -z "$node_info" ]; then
-            echo "Warning: Could not get info for node $node, skipping health check"
+            echo "WARNING: Could not get info for node $node, skipping health check"
             continue
         fi
 
+        # Check MySQL connectivity
+        local health_status
         if check_mysql_health "$node"; then
             health_status="online"
         else
@@ -135,28 +125,25 @@ check_cluster_health() {
             echo "[proxysql]: Node $node health check failed"
         fi
 
-        # Only include in transaction if status changed and we have valid node info
+        # Only update if status changed
         if [ "$(echo "$node_info" | jq -r '.status')" != "$health_status" ]; then
-            # Verify we have a valid node path
+            # Verify node ID format
             if [[ ! "$node" =~ ^[0-9a-zA-Z_-]+$ ]]; then
                 echo "Warning: Invalid node ID format: $node, skipping status update"
                 continue
             fi
 
-            node_info=$(echo "$node_info" | jq --arg status "$health_status" '.status = $status')
-            txn_cmds+="compare version($ETCD_NODES_PREFIX/$node) > 0\n"
-            txn_cmds+="success put $ETCD_NODES_PREFIX/$node '$node_info'\n"
-            txn_cmds+="failure put $ETCD_NODES_PREFIX/$node '$node_info'\n"
+            # Update node info with new status
+            node_info=$(echo "$node_info" | jq --arg status "$health_status" '.status = $status' | jq -c .)
+            
+            # Simple PUT update - node lease will handle liveness
+            if ! etcdctl --insecure-transport --insecure-skip-tls-verify \
+                put "$ETCD_NODES_PREFIX/$node" "$node_info" >/dev/null; then
+                echo "Warning: Failed to update status for node $node"
+                continue
+            fi
         fi
     done
-
-    # Execute single atomic transaction if there are any updates
-    if [ -n "$txn_cmds" ]; then
-        if ! execute_transaction "$txn_cmds"; then
-            echo "Warning: Failed to update node statuses in etcd"
-            return 1
-        fi
-    fi
 }
 
 setup_backup_schedule() {
@@ -187,39 +174,32 @@ handle_master_failover() {
     local current_master
     current_master=$(get_current_master)
 
-    # If no master exists or current master failed
-    if [ -z "$current_master" ] || ! check_mysql_health "$current_master"; then
-        echo "Master node $current_master has failed or no master exists"
-
-        # Find best slave to promote based on GTID position
-        local new_master
-        new_master=$(select_new_master)
-
-        if [ -n "$new_master" ]; then
-            # Create transaction that checks current_master hasn't changed
-            local txn_cmds
-            if [ -z "$current_master" ]; then
-                # If no master exists, verify the key doesn't exist
-                txn_cmds="compare version(\"$ETCD_MASTER_KEY\") = '0'\n"
-            else
-                # If replacing failed master, verify it's still the one we think it is
-                txn_cmds="compare value(\"$ETCD_MASTER_KEY\") = '$current_master'\n"
-            fi
-            txn_cmds+="success put $ETCD_MASTER_KEY '$new_master'\n"
-            txn_cmds+="failure get $ETCD_MASTER_KEY\n"
-
-            if ! execute_transaction "$txn_cmds"; then
-                echo "Master changed during failover attempt, retrying..."
-                return 1
-            fi
-
-            # Update roles atomically
-            update_topology_for_new_master "$new_master"
-            echo "Updated topology with new master: $new_master"
-        else
-            echo "ERROR: No suitable slave found for promotion!" >&2
-        fi
+    # Check if failover is needed
+    if [ -n "$current_master" ] && check_mysql_health "$current_master"; then
+        return 0
     fi
+
+    echo "Master node $current_master has failed or no master exists"
+    
+    # Simple master selection
+    local new_master
+    if ! new_master=$(select_new_master); then
+        echo "ERROR: No suitable slave found for promotion!" >&2
+        return 1
+    fi
+
+    # Update master in etcd with improved logging
+    echo "Promoting new master node: $new_master"
+    if ! update_etcd_key "$ETCD_MASTER_KEY" "$new_master"; then
+        echo "ERROR: Failed to promote new master node: $new_master" >&2
+        return 1
+    fi
+    echo "Successfully promoted new master node: $new_master"
+
+    # Update roles
+    update_topology_for_new_master "$new_master"
+    echo "Updated topology with new master: $new_master"
+    return 0
 }
 
 

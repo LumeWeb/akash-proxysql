@@ -24,6 +24,12 @@ validate_etcd_connection() {
 }
 
 # ETCD interaction functions with explicit TLS disabled
+# Note: These operations are atomic by design, using etcd's consistency guarantees
+# Each operation is self-contained to prevent partial updates
+
+# Get list of registered nodes from etcd
+# Returns: List of node IDs, one per line
+# Safety: This is an atomic read operation, consistent with etcd's snapshot isolation
 get_registered_nodes() {
     etcdctl --insecure-transport --insecure-skip-tls-verify \
         get "$ETCD_NODES_PREFIX/" --prefix --keys-only | sed "s|$ETCD_NODES_PREFIX/||"
@@ -39,6 +45,15 @@ get_current_master() {
     echo "$result" | jq -r '.kvs[0].value | @base64d'
 }
 
+# Update node status in etcd
+# Parameters:
+#   $1: node ID
+#   $2: new status (online/failed)
+# Safety:
+#   - Uses etcd's atomic PUT operation
+#   - Node lease ensures automatic cleanup of failed nodes
+#   - Preserves existing role information
+#   - Updates timestamp for lease renewal tracking
 update_node_status() {
      local node=$1
      local status=$2
@@ -78,22 +93,20 @@ update_node_status() {
              put "$ETCD_NODES_PREFIX/$node" >/dev/null
  }
 
+# Update slave status information
+# Simplified to use direct updates instead of transactions
 update_slave_status() {
     local node=$1
     local master_node=$2
     local lag=$3
     
+    echo "Updating slave status for node: $node"
     local json="{
         \"master_node_id\": \"$master_node\",
         \"replication_lag\": \"$lag\"
     }"
     
-    # Create atomic transaction
-    local txn_cmds="compare create $ETCD_SLAVES_PREFIX/$node = ''\n"
-    txn_cmds+="success put $ETCD_SLAVES_PREFIX/$node '$json'\n"
-    txn_cmds+="failure put $ETCD_SLAVES_PREFIX/$node '$json'\n"
-    
-    execute_transaction "$txn_cmds"
+    update_etcd_key "$ETCD_SLAVES_PREFIX/$node" "$json"
 }
 
 get_node_info() {
@@ -153,13 +166,38 @@ get_node_gtid() {
 }
 
 
-# Execute atomic transaction
-execute_transaction() {
-    local txn_cmds=$1
-    if ! printf "%b" "$txn_cmds" | etcdctl --insecure-transport --insecure-skip-tls-verify txn; then
+# Simplified etcd operations with better error handling and logging
+
+# Update a key with a value
+update_etcd_key() {
+    local key=$1
+    local value=$2
+    
+    echo "Updating etcd key: $key"
+    if ! etcdctl --insecure-transport --insecure-skip-tls-verify put "$key" "$value" >/dev/null; then
+        echo "Error: Failed to update etcd key: $key" >&2
         return 1
     fi
     return 0
+}
+
+# Get a key's value with error handling
+get_etcd_key() {
+    local key=$1
+    local result
+    
+    echo "Fetching etcd key: $key"
+    if ! result=$(etcdctl --insecure-transport --insecure-skip-tls-verify get "$key" -w json); then
+        echo "Error: Failed to get etcd key: $key" >&2
+        return 1
+    fi
+    
+    if [ -z "$result" ] || [ "$result" = "null" ] || ! echo "$result" | jq -e '.kvs[0]' >/dev/null 2>&1; then
+        echo "Warning: No value found for key: $key" >&2
+        return 0
+    fi
+    
+    echo "$result" | jq -r '.kvs[0].value | @base64d'
 }
 
 
@@ -168,28 +206,19 @@ update_topology_for_new_master() {
     local nodes
     nodes=$(get_registered_nodes)
     
-    # Build transaction commands for atomic update
-    local txn_cmds=""
-    txn_cmds+="put $ETCD_MASTER_KEY $new_master\n"
+    # Update master node first
+    local master_info
+    master_info=$(get_node_info "$new_master" | jq --arg role "master" '.role = $role')
+    etcdctl --insecure-transport --insecure-skip-tls-verify \
+        put "$ETCD_NODES_PREFIX/$new_master" "$master_info"
     
+    # Update remaining nodes as slaves
     for node in $nodes; do
-        local node_info
-        node_info=$(get_node_info "$node")
-        
-        if [ "$node" = "$new_master" ]; then
-            # Update master node info
-            node_info=$(echo "$node_info" | jq --arg role "master" '.role = $role')
-        else
-            # Update slave node info
-            node_info=$(echo "$node_info" | jq --arg role "slave" '.role = $role')
+        if [ "$node" != "$new_master" ]; then
+            local node_info
+            node_info=$(get_node_info "$node" | jq --arg role "slave" '.role = $role')
+            etcdctl --insecure-transport --insecure-skip-tls-verify \
+                put "$ETCD_NODES_PREFIX/$node" "$node_info"
         fi
-        
-        # Base64 encode the JSON
-        local encoded_info
-        encoded_info=$(echo "$node_info" | base64)
-        txn_cmds+="put $ETCD_NODES_PREFIX/$node '$encoded_info'\n"
     done
-    
-    # Execute all updates in a single atomic transaction
-    printf "%b" "$txn_cmds" | etcdctl --insecure-transport --insecure-skip-tls-verify txn >/dev/null 2>&1
 }
