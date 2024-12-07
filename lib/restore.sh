@@ -9,12 +9,12 @@ restore_proxysql() {
     if [ -z "$backup_file" ]; then
         echo "Error: Backup file name required" >&2
         return 1
-    }
+    fi
     
     if ! mkdir -p "$temp_dir"; then
         echo "Error: Failed to create temporary directory" >&2
         return 1
-    }
+    fi
     
     echo "Downloading backup file ${backup_file}..."
     # Download from S3
