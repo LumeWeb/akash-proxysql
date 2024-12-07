@@ -39,6 +39,8 @@ init_proxysql() {
     WHERE variable_name='mysql-max_connections';
 
     -- Configure query rules for read/write split
+    DELETE FROM mysql_query_rules;
+    
     INSERT INTO mysql_query_rules (rule_id, active, match_pattern, destination_hostgroup, apply)
     VALUES (1, 1, '^SELECT.*FOR UPDATE$', $PROXYSQL_WRITER_HOSTGROUP, 1);
 
