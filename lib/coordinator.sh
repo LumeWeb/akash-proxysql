@@ -122,16 +122,29 @@ check_cluster_health() {
         local node_info health_status
         node_info=$(get_node_info "$node")
         
+        # Skip if we couldn't get node info
+        if [ $? -ne 0 ] || [ -z "$node_info" ]; then
+            echo "Warning: Could not get info for node $node, skipping health check"
+            continue
+        fi
+
         if check_mysql_health "$node"; then
             health_status="online"
         else
             health_status="failed"
+            echo "[proxysql]: Node $node health check failed"
         fi
 
-        # Only include in transaction if status changed
+        # Only include in transaction if status changed and we have valid node info
         if [ "$(echo "$node_info" | jq -r '.status')" != "$health_status" ]; then
+            # Verify we have a valid node path
+            if [[ ! "$node" =~ ^[0-9a-zA-Z_-]+$ ]]; then
+                echo "Warning: Invalid node ID format: $node, skipping status update"
+                continue
+            fi
+
             node_info=$(echo "$node_info" | jq --arg status "$health_status" '.status = $status')
-            txn_cmds+="compare mod($ETCD_NODES_PREFIX/$node) > 0\n"
+            txn_cmds+="compare version($ETCD_NODES_PREFIX/$node) > 0\n"
             txn_cmds+="success put $ETCD_NODES_PREFIX/$node '$node_info'\n"
             txn_cmds+="failure put $ETCD_NODES_PREFIX/$node '$node_info'\n"
         fi
@@ -139,7 +152,10 @@ check_cluster_health() {
 
     # Execute single atomic transaction if there are any updates
     if [ -n "$txn_cmds" ]; then
-        execute_transaction "$txn_cmds"
+        if ! execute_transaction "$txn_cmds"; then
+            echo "Warning: Failed to update node statuses in etcd"
+            return 1
+        fi
     fi
 }
 
