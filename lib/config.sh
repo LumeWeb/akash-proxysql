@@ -43,8 +43,8 @@ if [ -z "$MYSQL_REPL_PASSWORD" ]; then
 fi
 
 # Basic format validation for replication user
-if [[ ! "$MYSQL_REPL_USER" =~ ^[a-zA-Z0-9_\-]+$ ]]; then
-    echo "Error: MYSQL_REPL_USER contains invalid characters" >&2
+if [[ ! "$MYSQL_REPL_USERNAME" =~ ^[a-zA-Z0-9_\-]+$ ]]; then
+    echo "Error: MYSQL_REPL_USERNAME contains invalid characters" >&2
     exit 1
 fi
 
