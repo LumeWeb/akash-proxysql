@@ -186,7 +186,10 @@ handle_master_failover() {
     
     # Reset and select new master
     SELECTED_NODE=""
-    if ! select_new_master || [ -z "$SELECTED_NODE" ]; then
+    select_new_master
+    local select_result=$?
+    
+    if [ $select_result -ne 0 ] || [ -z "$SELECTED_NODE" ]; then
         echo "ERROR: No suitable slave found for promotion!" >&2
         return 1
     fi
