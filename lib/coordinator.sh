@@ -85,7 +85,7 @@ select_new_master() {
         if [ "$(echo "$node_info" | jq -r '.role')" = "slave" ] && \
            [ "$(echo "$node_info" | jq -r '.status')" = "online" ] && \
            check_mysql_health "$node"; then
-            echo "$node"
+            SELECTED_NODE="$node"
             return 0
         fi
     done
