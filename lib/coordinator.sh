@@ -178,31 +178,31 @@ handle_master_failover() {
     local current_master
     current_master=$(get_current_master)
 
-    # Check if failover is needed
-    if [ -n "$current_master" ] && check_mysql_health "$current_master"; then
+    if [ -n "$current_master" ] && check_mysql_health "$current_master" >/dev/null 2>&1; then
         return 0
     fi
 
     echo "Master node $current_master has failed or no master exists"
     
-    # Simple master selection
     local new_master
-    if ! new_master=$(select_new_master); then
+    if ! new_master=$(select_new_master) || [ -z "$new_master" ]; then
         echo "ERROR: No suitable slave found for promotion!" >&2
         return 1
     fi
 
-    # Update master in etcd with improved logging
+    # Validate node ID format
+    if ! [[ "$new_master" =~ ^[0-9a-zA-Z_-]+$ ]]; then
+        echo "ERROR: Invalid node ID format: $new_master" >&2
+        return 1
+    fi
+
     echo "Promoting new master node: $new_master"
-    if ! update_etcd_key "$ETCD_MASTER_KEY" "$new_master" 2>&1; then
+    if ! update_etcd_key "$ETCD_MASTER_KEY" "$new_master"; then
         echo "ERROR: Failed to promote new master node: $new_master" >&2
         return 1
     fi
-    echo "Successfully promoted new master node: $new_master"
 
-    # Update roles
     update_topology_for_new_master "$new_master"
-    echo "Updated topology with new master: $new_master"
     return 0
 }
 

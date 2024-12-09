@@ -84,35 +84,19 @@ select_new_master() {
     local nodes
     nodes=$(get_registered_nodes)
     
-    # Find healthy slave with least lag
-    local best_slave=""
-    local min_lag=999999
-    
+    # Find first healthy slave
     for node in $nodes; do
-        # Capture health check output separately
-        if [ "$(get_node_role "$node")" = "slave" ] && check_mysql_health "$node" >/dev/null 2>&1; then
-            local host
-            local port
-            host=$(get_node_hostname "$node")
-            port=$(get_node_port "$node")
-            
-            local lag
-            lag=$(mysql -h "$host" -P "$port" -u"$MYSQL_REPL_USERNAME" -p"$MYSQL_REPL_PASSWORD" \
-                 -e "SHOW SLAVE STATUS\G" 2>/dev/null | grep "Seconds_Behind_Master:" | awk '{print $2}')
-            
-            # Default to max lag if we couldn't get the value
-            lag=${lag:-999999}
-            
-            if [ "$lag" -lt "$min_lag" ]; then
-                min_lag=$lag
-                best_slave=$node
-            fi
+        # Redirect all output to /dev/null to prevent it being captured
+        if [ "$(get_node_role "$node")" = "slave" ] && \
+           [ "$(get_node_info "$node" | jq -r '.status')" = "online" ] && \
+           check_mysql_health "$node" >/dev/null 2>&1; then
+            # Only output the clean node ID
+            printf '%s' "$node"
+            return 0
         fi
     done
     
-    # Only output the node ID, nothing else
-    [ -n "$best_slave" ] && printf '%s' "$best_slave"
-    return 0
+    return 1
 }
 
 promote_new_master() {
