@@ -161,6 +161,8 @@ check_cluster_health() {
     
     [ "${DEBUG:-0}" = "1" ] && echo "Starting cluster health check for nodes"
     
+    local has_errors=0
+    
     for node in $nodes; do
         [ "${DEBUG:-0}" = "1" ] && echo "Checking health of node: $node"
         
@@ -170,14 +172,14 @@ check_cluster_health() {
         
         if [ -z "$node_info" ] || [ "$node_info" = "null" ]; then
             echo "WARNING: No info found for node $node, removing from etcd"
-            delete_etcd_key "$ETCD_NODES_PREFIX/$node"
+            delete_etcd_key "$ETCD_NODES_PREFIX/$node" || has_errors=1
             continue
         fi
         
         # Check if node info is valid
         if ! echo "$node_info" | jq -e 'has("host") and has("port")' >/dev/null 2>&1; then
             echo "WARNING: Invalid config for node $node, removing from etcd"
-            etcdctl --insecure-transport --insecure-skip-tls-verify del "$ETCD_NODES_PREFIX/$node"
+            delete_etcd_key "$ETCD_NODES_PREFIX/$node" || has_errors=1
             continue
         fi
 
@@ -188,7 +190,7 @@ check_cluster_health() {
         
         if [ -z "$host" ] || [ -z "$port" ] || [ "$host" = "null" ] || [ "$port" = "null" ]; then
             echo "WARNING: Node $node has empty/null host/port, removing from etcd"
-            etcdctl --insecure-transport --insecure-skip-tls-verify del "$ETCD_NODES_PREFIX/$node"
+            delete_etcd_key "$ETCD_NODES_PREFIX/$node" || has_errors=1
             continue
         fi
 
@@ -203,9 +205,12 @@ check_cluster_health() {
         # Only update if status changed
         if [ "$(echo "$node_info" | jq -r '.status // "unknown"')" != "$health_status" ]; then
             echo "Node $node status changed to: $health_status"
-            update_node_status "$node" "$health_status"
+            update_node_status "$node" "$health_status" || has_errors=1
         fi
     done
+
+    # Return overall status but don't exit
+    return $has_errors
 }
 
 setup_backup_schedule() {
