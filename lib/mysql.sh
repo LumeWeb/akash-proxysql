@@ -81,7 +81,7 @@ check_slave_status() {
 }
 
 # Global variable to store selected node
-SELECTED_NODE=""
+declare -g SELECTED_NODE=""
 
 select_new_master() {
     local nodes
