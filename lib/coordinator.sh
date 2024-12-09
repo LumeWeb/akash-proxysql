@@ -191,13 +191,13 @@ handle_master_failover() {
         return 1
     fi
 
-    echo "Promoting new master node: $new_master"
-    if ! update_etcd_key "$ETCD_MASTER_KEY" "$new_master"; then
-        echo "ERROR: Failed to promote new master node: $new_master" >&2
+    echo "Promoting new master node: $SELECTED_NODE"
+    if ! update_etcd_key "$ETCD_MASTER_KEY" "$SELECTED_NODE"; then
+        echo "ERROR: Failed to promote new master node: $SELECTED_NODE" >&2
         return 1
     fi
 
-    update_topology_for_new_master "$new_master"
+    update_topology_for_new_master "$SELECTED_NODE"
     return 0
 }
 
