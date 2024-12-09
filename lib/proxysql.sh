@@ -106,14 +106,14 @@ EOF
             slave_host=$(get_node_hostname "$node")
             slave_port=$(get_node_port "$node")
 
-            mysql -h127.0.0.1 -P6032 -u"$PROXYSQL_ADMIN_USER" --defaults-extra-file=<(echo $'[client]\npassword='"$PROXYSQL_ADMIN_PASSWORD") <<EOF
+            mysql -h127.0.0.1 -P6032 -u"$PROXYSQL_ADMIN_USER" -p"$PROXYSQL_ADMIN_PASSWORD" <<EOF
             INSERT INTO mysql_servers (hostgroup_id, hostname, port)
             VALUES ($PROXYSQL_READER_HOSTGROUP, '$slave_host', COALESCE(NULLIF('$slave_port', ''), 3306));
 EOF
         fi
     done
 
-    mysql -h127.0.0.1 -P6032 -u"$PROXYSQL_ADMIN_USER" --defaults-extra-file=<(echo $'[client]\npassword='"$PROXYSQL_ADMIN_PASSWORD") <<EOF
+    mysql -h127.0.0.1 -P6032 -u"$PROXYSQL_ADMIN_USER" -p"$PROXYSQL_ADMIN_PASSWORD" <<EOF
     LOAD MYSQL SERVERS TO RUNTIME;
     SAVE MYSQL SERVERS TO DISK;
 EOF

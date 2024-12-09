@@ -174,7 +174,7 @@ get_node_gtid() {
    local gtid
 
    # Try to get GTID, return empty string if it fails
-   gtid=$(mysql -h"$host" -P"$port" -u"$MYSQL_REPL_USERNAME" --defaults-extra-file=<(echo $'[client]\npassword='"$MYSQL_REPL_PASSWORD") -e "SHOW MASTER STATUS\G" 2>/dev/null | grep "Executed_Gtid_Set" | awk '{print $2}' || echo "")
+   gtid=$(mysql -h"$host" -P"$port" -u"$MYSQL_REPL_USERNAME" -p"$PROXYSQL_ADMIN_PASSWORD" -e "SHOW MASTER STATUS\G" 2>/dev/null | grep "Executed_Gtid_Set" | awk '{print $2}' || echo "")
 
    echo "$gtid"
 }
