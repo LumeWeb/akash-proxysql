@@ -136,7 +136,16 @@ get_node_info() {
     result=$(etcdctl --insecure-transport --insecure-skip-tls-verify get "$ETCD_NODES_PREFIX/$node" -w json)
     
     if [ -n "$result" ] && [ "$result" != "null" ]; then
-        echo "$result" | jq -r '.kvs[0].value | @base64d'
+        local decoded
+        decoded=$(echo "$result" | jq -r '.kvs[0].value | @base64d')
+        
+        # Validate required fields exist and are non-empty
+        if ! echo "$decoded" | jq -e 'has("host") and has("port") and .host != "" and .port != ""' >/dev/null; then
+            # Return a valid but marked-as-failed node info if missing required fields
+            echo "{\"host\":\"\",\"port\":\"\",\"role\":\"$(echo "$decoded" | jq -r '.role // \"unknown\"')\",\"status\":\"failed\",\"error\":\"invalid_config\"}"
+            return 1
+        fi
+        echo "$decoded"
     else
         echo "{\"host\":\"\",\"port\":\"\",\"role\":\"\",\"status\":\"unknown\"}"
         return 1
