@@ -7,7 +7,7 @@ export BACKUP_ENABLED=${BACKUP_ENABLED:-true}
 validate_backup_config() {
     if [ "$BACKUP_ENABLED" != "true" ]; then
         echo "Backups are disabled via BACKUP_ENABLED environment variable"
-        return 1
+        return 0  # Return success when backups are disabled
     fi
 
     local required_vars=(
