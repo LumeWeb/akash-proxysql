@@ -164,19 +164,15 @@ check_cluster_health() {
     for node in $nodes; do
         [ "${DEBUG:-0}" = "1" ] && echo "Checking health of node: $node"
         
-        # Get current node info from etcd
-        local raw_info
-        raw_info=$(etcdctl --insecure-transport --insecure-skip-tls-verify get "$ETCD_NODES_PREFIX/$node" -w json)
+        # Get current node info
+        local node_info
+        node_info=$(get_node_info "$node")
         
-        if [ -z "$raw_info" ] || [ "$raw_info" = "null" ]; then
+        if [ -z "$node_info" ] || [ "$node_info" = "null" ]; then
             echo "WARNING: No info found for node $node, removing from etcd"
             etcdctl --insecure-transport --insecure-skip-tls-verify del "$ETCD_NODES_PREFIX/$node"
             continue
-        fi
-
-        # Extract and parse the actual node info
-        local node_info
-        node_info=$(echo "$raw_info" | jq -r '.kvs[0].value | @base64d')
+        }
         
         # Check if node info is valid
         if ! echo "$node_info" | jq -e 'has("host") and has("port")' >/dev/null 2>&1; then
