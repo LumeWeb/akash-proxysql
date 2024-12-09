@@ -81,19 +81,22 @@ EOF
 
     # Update writer hostgroup
     mysql -h127.0.0.1 -P6032 -u"$PROXYSQL_ADMIN_USER" -p"$PROXYSQL_ADMIN_PASSWORD" <<EOF
-    SELECT COUNT(*) INTO @exists 
-    FROM mysql_servers 
+    SET @exists = (
+        SELECT COUNT(*) 
+        FROM mysql_servers 
+        WHERE hostgroup_id=$PROXYSQL_WRITER_HOSTGROUP 
+        AND hostname='$host' 
+        AND port=COALESCE(NULLIF('$port', ''), 3306)
+    );
+    
+    DELETE FROM mysql_servers 
     WHERE hostgroup_id=$PROXYSQL_WRITER_HOSTGROUP 
     AND hostname='$host' 
     AND port=COALESCE(NULLIF('$port', ''), 3306);
     
-    SET @sql = IF(@exists > 0, 
-        'UPDATE mysql_servers SET status="ONLINE" WHERE hostgroup_id=$PROXYSQL_WRITER_HOSTGROUP AND hostname="$host" AND port=COALESCE(NULLIF("$port", ""), 3306)',
-        'INSERT INTO mysql_servers (hostgroup_id, hostname, port) VALUES ($PROXYSQL_WRITER_HOSTGROUP, "$host", COALESCE(NULLIF("$port", ""), 3306))');
-    
-    PREPARE stmt FROM @sql;
-    EXECUTE stmt;
-    DEALLOCATE PREPARE stmt;
+    INSERT INTO mysql_servers (hostgroup_id, hostname, port, status)
+    VALUES ($PROXYSQL_WRITER_HOSTGROUP, '$host', 
+            COALESCE(NULLIF('$port', ''), 3306), 'ONLINE');
 EOF
 
     # Get all nodes for reader hostgroup
