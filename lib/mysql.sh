@@ -128,7 +128,7 @@ promote_new_master() {
     
     echo "Updating node $node role to master"
     if ! update_etcd_key "$ETCD_NODES_PREFIX/$node" "$node_info"; then
-        echo "ERROR: Failed to update role for node $node" >&2
+        echo "ERROR: Failed to update role for node $node"
         return 1
     fi
 }

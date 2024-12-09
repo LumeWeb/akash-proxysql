@@ -31,10 +31,10 @@ validate_etcd_connection() {
 # Returns: List of node IDs, one per line
 # Safety: This is an atomic read operation, consistent with etcd's snapshot isolation
 get_registered_nodes() {
-    # Redirect any debug output to stderr
+    # Capture any debug output separately
     local nodes
     nodes=$(etcdctl --insecure-transport --insecure-skip-tls-verify \
-        get "$ETCD_NODES_PREFIX/" --prefix --keys-only 2>&2) || return 1
+        get "$ETCD_NODES_PREFIX/" --prefix --keys-only 2>&1) || return 1
     
     # Process only the actual node keys
     echo "$nodes" | while read -r line; do
@@ -46,7 +46,7 @@ get_current_master() {
     # Use --print-value-only to get just the master node ID
     local master
     master=$(etcdctl --insecure-transport --insecure-skip-tls-verify \
-        get "$ETCD_MASTER_KEY" --print-value-only 2>&2) || return 1
+        get "$ETCD_MASTER_KEY" --print-value-only 2>&1) || return 1
     
     # Only output if we got a valid node ID
     [[ -n "$master" ]] && echo "$master"
