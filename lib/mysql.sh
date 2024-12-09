@@ -17,8 +17,6 @@ check_mysql_health() {
    local host
    local port
 
-   echo "Checking MySQL health for node: $node"
-   
    host=$(get_node_hostname "$node")
    port=$(get_node_port "$node")
 
@@ -28,15 +26,12 @@ check_mysql_health() {
        return 1
    fi
 
-   # Try to connect and run simple query
-   echo "Attempting MySQL connection to $host:$port..."
+   # Try to connect and run simple query - only log errors
    if ! mysql -h"$host" -P"$port" -u"$MYSQL_REPL_USERNAME" -p"$MYSQL_REPL_PASSWORD" -e "SELECT 1;" &>/dev/null; then
        echo "ERROR: Failed to establish MySQL connection to $host:$port" >&2
        echo "Please check: 1) MySQL service status 2) Network connectivity 3) Authentication credentials" >&2
        return 1
    fi
-
-   echo "MySQL health check successful for $host:$port"
    return 0
 }
 

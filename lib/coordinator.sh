@@ -108,10 +108,11 @@ check_cluster_health() {
     local nodes
     nodes=$(get_registered_nodes)
     
-    echo "Starting cluster health check for ${#nodes[@]} nodes"
+    # Only log the start of health check if debug logging is enabled
+    [ "${DEBUG:-0}" = "1" ] && echo "Starting cluster health check for ${#nodes[@]} nodes"
     
     for node in $nodes; do
-        echo "Checking health of node: $node"
+        [ "${DEBUG:-0}" = "1" ] && echo "Checking health of node: $node"
         local node_info
         node_info=$(get_node_info "$node")
         
@@ -120,17 +121,18 @@ check_cluster_health() {
             continue
         fi
 
-        # Check MySQL connectivity
+        # Check MySQL connectivity - only log status changes
         local health_status
-        if check_mysql_health "$node"; then
+        if check_mysql_health "$node" >/dev/null 2>&1; then
             health_status="online"
         else
             health_status="failed"
-            echo "[proxysql]: Node $node health check failed"
+            echo "Node $node health check failed"
         fi
 
-        # Only update if status changed
+        # Only update and log if status changed
         if [ "$(echo "$node_info" | jq -r '.status')" != "$health_status" ]; then
+            echo "Node $node status changed to: $health_status"
             # Verify node ID format
             if [[ ! "$node" =~ ^[0-9a-zA-Z_-]+$ ]]; then
                 echo "Warning: Invalid node ID format: $node, skipping status update"
