@@ -63,7 +63,10 @@ main() {
         fi
 
         # Check all registered nodes
-        check_cluster_health
+        if ! check_cluster_health; then
+            echo "Warning: Cluster health check reported errors"
+            # Continue execution but log the error
+        fi
 
         # Handle any failed master or missing master
         if ! handle_master_failover; then
