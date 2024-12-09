@@ -18,8 +18,8 @@ check_disk_space() {
 }
 
 backup_proxysql() {
-    # Check if backups are enabled
-    if [ "$BACKUP_ENABLED" != "true" ]; then
+    # If explicitly disabled, log and return 1
+    if [ "$BACKUP_ENABLED" = "false" ]; then
         echo "Backups are disabled via BACKUP_ENABLED environment variable"
         return 1
     fi

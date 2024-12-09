@@ -1,13 +1,14 @@
 #!/bin/bash
 
-# Export backup enabled status with default
-export BACKUP_ENABLED=${BACKUP_ENABLED:-true}
+# Export backup enabled status with default to true if not set
+export BACKUP_ENABLED=${BACKUP_ENABLED:-"true"}
 
 # Validate required backup environment variables
 validate_backup_config() {
-    if [ "$BACKUP_ENABLED" != "true" ]; then
+    # If explicitly disabled, log and return 1
+    if [ "$BACKUP_ENABLED" = "false" ]; then
         echo "Backups are disabled via BACKUP_ENABLED environment variable"
-        return 0  # Return success when backups are disabled
+        return 1
     fi
 
     local required_vars=(
