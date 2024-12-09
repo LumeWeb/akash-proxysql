@@ -217,22 +217,34 @@ get_etcd_key() {
 
 update_topology_for_new_master() {
     local new_master=$1
+    
+    # Validate node ID format first
+    if ! [[ "$new_master" =~ ^[0-9a-zA-Z_-]+$ ]]; then
+        echo "ERROR: Invalid master node ID format" >&2
+        return 1
+    fi
+    
     local nodes
     nodes=$(get_registered_nodes)
     
     # Update master node first
     local master_info
     master_info=$(get_node_info "$new_master" | jq --arg role "master" '.role = $role')
-    etcdctl --insecure-transport --insecure-skip-tls-verify \
-        put "$ETCD_NODES_PREFIX/$new_master" "$master_info"
+    if ! etcdctl --insecure-transport --insecure-skip-tls-verify \
+        put "$ETCD_NODES_PREFIX/$new_master" "$master_info" >/dev/null 2>&1; then
+        echo "ERROR: Failed to update master node info" >&2
+        return 1
+    fi
     
     # Update remaining nodes as slaves
     for node in $nodes; do
         if [ "$node" != "$new_master" ]; then
             local node_info
             node_info=$(get_node_info "$node" | jq --arg role "slave" '.role = $role')
-            etcdctl --insecure-transport --insecure-skip-tls-verify \
-                put "$ETCD_NODES_PREFIX/$node" "$node_info"
+            if ! etcdctl --insecure-transport --insecure-skip-tls-verify \
+                put "$ETCD_NODES_PREFIX/$node" "$node_info" >/dev/null 2>&1; then
+                echo "WARNING: Failed to update slave node $node" >&2
+            fi
         fi
     done
 }
