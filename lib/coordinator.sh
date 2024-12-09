@@ -55,10 +55,17 @@ main() {
             continue
         fi
 
+        # Validate master key consistency
+        if ! validate_master_key; then
+            echo "Warning: Failed to validate master key, will retry"
+            sleep "$check_interval"
+            continue
+        fi
+
         # Check all registered nodes
         check_cluster_health
 
-        # Handle any failed master
+        # Handle any failed master or missing master
         if ! handle_master_failover; then
             echo "Warning: Failed to handle master failover, will retry on next iteration"
             sleep "$check_interval"
@@ -91,6 +98,50 @@ select_new_master() {
     done
     
     return 1
+}
+
+# Validate master key consistency
+# This ensures the master key in etcd matches reality by:
+# 1. Checking if the current master key points to a valid node
+# 2. Verifying the node is actually functioning as master
+# 3. Clearing stale master keys to allow proper promotion
+validate_master_key() {
+    local current_master
+    current_master=$(get_current_master)
+    
+    # If no master key exists, that's valid (fresh cluster)
+    if [ -z "$current_master" ]; then
+        return 0
+    fi
+    
+    # Verify master node exists and is healthy
+    local master_info
+    master_info=$(get_node_info "$current_master")
+    
+    if [ -z "$master_info" ] || [ "$(echo "$master_info" | jq -r '.status')" != "online" ]; then
+        echo "Warning: Master key points to non-existent or unhealthy node: $current_master"
+        # Clear the stale master key
+        if ! etcdctl --insecure-transport --insecure-skip-tls-verify del "$ETCD_MASTER_KEY" >/dev/null; then
+            echo "Error: Failed to clear stale master key" >&2
+            return 1
+        fi
+        echo "Cleared stale master key"
+        return 0
+    fi
+    
+    # Verify node is actually functioning as master
+    if [ "$(echo "$master_info" | jq -r '.role')" != "master" ]; then
+        echo "Warning: Master key points to node that is not in master role: $current_master"
+        # Clear the inconsistent master key
+        if ! etcdctl --insecure-transport --insecure-skip-tls-verify del "$ETCD_MASTER_KEY" >/dev/null; then
+            echo "Error: Failed to clear inconsistent master key" >&2
+            return 1
+        fi
+        echo "Cleared inconsistent master key"
+        return 0
+    fi
+    
+    return 0
 }
 
 # Check health status of all cluster nodes
