@@ -55,6 +55,12 @@ main() {
             continue
         fi
 
+        # Prune stale nodes first
+        if ! prune_stale_nodes; then
+            echo "Warning: Node pruning reported errors"
+            # Continue execution but log the error
+        fi
+
         # Validate master key consistency
         if ! validate_master_key; then
             echo "Warning: Failed to validate master key, will retry"
@@ -145,6 +151,76 @@ validate_master_key() {
     fi
     
     return 0
+}
+
+# Prune stale node records from etcd
+# Parameters:
+#   $1: max age in seconds (optional, defaults to 300)
+# Returns:
+#   0 on success, 1 if errors occurred
+prune_stale_nodes() {
+    local max_age=${1:-300}  # Default to 5 minutes
+    local current_time
+    current_time=$(date -u +%s)
+    local has_errors=0
+    
+    echo "Starting node pruning routine (max age: ${max_age}s)"
+    
+    local nodes
+    nodes=$(get_registered_nodes) || return 1
+    
+    for node in $nodes; do
+        local node_info
+        node_info=$(get_node_info "$node")
+        
+        # Skip if we can't get node info
+        if [ -z "$node_info" ] || [ "$node_info" = "null" ]; then
+            echo "WARNING: No info found for node $node, marking for removal"
+            delete_etcd_key "$ETCD_NODES_PREFIX/$node" || has_errors=1
+            continue
+        fi
+        
+        # Get last_seen timestamp
+        local last_seen
+        last_seen=$(echo "$node_info" | jq -r '.last_seen // empty')
+        
+        if [ -z "$last_seen" ]; then
+            echo "WARNING: Node $node has no last_seen timestamp, marking for removal"
+            delete_etcd_key "$ETCD_NODES_PREFIX/$node" || has_errors=1
+            continue
+        fi
+        
+        # Convert ISO 8601 timestamp to epoch seconds
+        local last_seen_epoch
+        last_seen_epoch=$(date -d "$last_seen" +%s 2>/dev/null)
+        
+        if [ -z "$last_seen_epoch" ]; then
+            echo "WARNING: Node $node has invalid last_seen timestamp, marking for removal"
+            delete_etcd_key "$ETCD_NODES_PREFIX/$node" || has_errors=1
+            continue
+        fi
+        
+        # Calculate age in seconds
+        local age=$((current_time - last_seen_epoch))
+        
+        if [ $age -gt $max_age ]; then
+            echo "Node $node is stale (age: ${age}s), marking for removal"
+            delete_etcd_key "$ETCD_NODES_PREFIX/$node" || has_errors=1
+            
+            # Also clean up any slave status entries
+            delete_etcd_key "$ETCD_SLAVES_PREFIX/$node" || has_errors=1
+            
+            # If this was the master, clear the master key
+            local current_master
+            current_master=$(get_current_master)
+            if [ "$node" = "$current_master" ]; then
+                echo "Removing stale master key for node $node"
+                delete_etcd_key "$ETCD_MASTER_KEY" || has_errors=1
+            fi
+        fi
+    done
+    
+    return $has_errors
 }
 
 # Check health status of all cluster nodes
