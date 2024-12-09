@@ -160,15 +160,18 @@ check_cluster_health() {
     nodes=$(get_registered_nodes)
     
     # Only log the start of health check if debug logging is enabled
-    [ "${DEBUG:-0}" = "1" ] && echo "Starting cluster health check for ${#nodes[@]} nodes"
+    [ "${DEBUG:-0}" = "1" ] && echo "Starting cluster health check for nodes"
     
     for node in $nodes; do
         [ "${DEBUG:-0}" = "1" ] && echo "Checking health of node: $node"
         local node_info
         node_info=$(get_node_info "$node")
         
+        # Instead of failing, just log and continue if we can't get node info
         if [ $? -ne 0 ] || [ -z "$node_info" ]; then
-            echo "WARNING: Could not get info for node $node, skipping health check"
+            echo "WARNING: Could not get valid info for node $node, marking as failed"
+            # Update node as failed but don't exit
+            update_node_status "$node" "failed"
             continue
         fi
 
@@ -184,21 +187,7 @@ check_cluster_health() {
         # Only update and log if status changed
         if [ "$(echo "$node_info" | jq -r '.status')" != "$health_status" ]; then
             echo "Node $node status changed to: $health_status"
-            # Verify node ID format
-            if [[ ! "$node" =~ ^[0-9a-zA-Z_-]+$ ]]; then
-                echo "Warning: Invalid node ID format: $node, skipping status update"
-                continue
-            fi
-
-            # Update node info with new status
-            node_info=$(echo "$node_info" | jq --arg status "$health_status" '.status = $status' | jq -c .)
-            
-            # Simple PUT update - node lease will handle liveness
-            if ! etcdctl --insecure-transport --insecure-skip-tls-verify \
-                put "$ETCD_NODES_PREFIX/$node" "$node_info" >/dev/null; then
-                echo "Warning: Failed to update status for node $node"
-                continue
-            fi
+            update_node_status "$node" "$health_status"
         fi
     done
 }
