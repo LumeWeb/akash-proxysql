@@ -184,15 +184,10 @@ handle_master_failover() {
 
     echo "Master node $current_master has failed or no master exists"
     
-    local new_master
-    if ! new_master=$(select_new_master) || [ -z "$new_master" ]; then
+    # Reset and select new master
+    SELECTED_NODE=""
+    if ! select_new_master || [ -z "$SELECTED_NODE" ]; then
         echo "ERROR: No suitable slave found for promotion!" >&2
-        return 1
-    fi
-
-    # Validate node ID format
-    if ! [[ "$new_master" =~ ^[0-9a-zA-Z_-]+$ ]]; then
-        echo "ERROR: Invalid node ID format: $new_master" >&2
         return 1
     fi
 

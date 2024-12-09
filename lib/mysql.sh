@@ -80,24 +80,26 @@ check_slave_status() {
     return 0
 }
 
+# Global variable to store selected node
+SELECTED_NODE=""
+
 select_new_master() {
     local nodes
     nodes=$(get_registered_nodes)
     
+    # Reset global
+    SELECTED_NODE=""
+    
     # Find first healthy slave
     for node in $nodes; do
-        # Capture node info and check conditions silently
         local node_info
         node_info=$(get_node_info "$node")
         
         if [ "$(echo "$node_info" | jq -r '.role')" = "slave" ] && \
-           [ "$(echo "$node_info" | jq -r '.status')" = "online" ]; then
-            # Check health silently - redirect all output
-            if check_mysql_health "$node" >/dev/null 2>&1; then
-                # Only output the clean node ID, nothing else
-                printf '%s' "$node"
-                return 0
-            fi
+           [ "$(echo "$node_info" | jq -r '.status')" = "online" ] && \
+           check_mysql_health "$node" >/dev/null 2>&1; then
+            SELECTED_NODE="$node"
+            return 0
         fi
     done
     
