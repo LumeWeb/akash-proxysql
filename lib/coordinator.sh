@@ -182,7 +182,9 @@ check_cluster_health() {
         # Check if node info is valid
         if ! echo "$node_info" | jq -e 'has("host") and has("port")' >/dev/null 2>&1; then
             echo "WARNING: Invalid config for node $node, marking as failed"
-            update_node_status "$node" "failed"
+            if ! update_node_status "$node" "failed"; then
+                echo "ERROR: Failed to update status for node $node, continuing..."
+            fi
             continue
         fi
 
