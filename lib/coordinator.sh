@@ -159,7 +159,6 @@ check_cluster_health() {
     local nodes
     nodes=$(get_registered_nodes)
     
-    # Only log the start of health check if debug logging is enabled
     [ "${DEBUG:-0}" = "1" ] && echo "Starting cluster health check for nodes"
     
     for node in $nodes; do
@@ -170,8 +169,8 @@ check_cluster_health() {
         raw_info=$(etcdctl --insecure-transport --insecure-skip-tls-verify get "$ETCD_NODES_PREFIX/$node" -w json)
         
         if [ -z "$raw_info" ] || [ "$raw_info" = "null" ]; then
-            echo "WARNING: No info found for node $node, marking as failed"
-            update_node_status "$node" "failed"
+            echo "WARNING: No info found for node $node, removing from etcd"
+            etcdctl --insecure-transport --insecure-skip-tls-verify del "$ETCD_NODES_PREFIX/$node"
             continue
         fi
 
@@ -181,30 +180,31 @@ check_cluster_health() {
         
         # Check if node info is valid
         if ! echo "$node_info" | jq -e 'has("host") and has("port")' >/dev/null 2>&1; then
-            echo "WARNING: Invalid config for node $node, marking as failed"
-            if ! update_node_status "$node" "failed"; then
-                echo "ERROR: Failed to update status for node $node, continuing..."
-            fi
+            echo "WARNING: Invalid config for node $node, removing from etcd"
+            etcdctl --insecure-transport --insecure-skip-tls-verify del "$ETCD_NODES_PREFIX/$node"
             continue
         fi
 
-        # Check MySQL connectivity only if we have valid host/port
-        local health_status="failed"
+        # Check if host/port are actually populated with valid values
         local host port
         host=$(echo "$node_info" | jq -r '.host')
         port=$(echo "$node_info" | jq -r '.port')
         
-        if [ -n "$host" ] && [ -n "$port" ] && [ "$host" != "null" ] && [ "$port" != "null" ]; then
-            if check_mysql_health "$node" >/dev/null 2>&1; then
-                health_status="online"
-            else
-                echo "Node $node health check failed"
-            fi
-        else
-            echo "Node $node missing valid host/port configuration"
+        if [ -z "$host" ] || [ -z "$port" ] || [ "$host" = "null" ] || [ "$port" = "null" ]; then
+            echo "WARNING: Node $node has empty/null host/port, removing from etcd"
+            etcdctl --insecure-transport --insecure-skip-tls-verify del "$ETCD_NODES_PREFIX/$node"
+            continue
         fi
 
-        # Only update and log if status changed
+        # Continue with regular health check for valid nodes
+        local health_status="failed"
+        if check_mysql_health "$node" >/dev/null 2>&1; then
+            health_status="online"
+        else
+            echo "Node $node health check failed"
+        fi
+
+        # Only update if status changed
         if [ "$(echo "$node_info" | jq -r '.status // "unknown"')" != "$health_status" ]; then
             echo "Node $node status changed to: $health_status"
             update_node_status "$node" "$health_status"
