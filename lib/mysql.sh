@@ -89,7 +89,8 @@ select_new_master() {
     local min_lag=999999
     
     for node in $nodes; do
-        if [ "$(get_node_role "$node")" = "slave" ] && check_mysql_health "$node"; then
+        # Capture health check output separately
+        if [ "$(get_node_role "$node")" = "slave" ] && check_mysql_health "$node" >/dev/null 2>&1; then
             local host
             local port
             host=$(get_node_hostname "$node")
@@ -99,6 +100,9 @@ select_new_master() {
             lag=$(mysql -h "$host" -P "$port" -u"$MYSQL_REPL_USERNAME" -p"$MYSQL_REPL_PASSWORD" \
                  -e "SHOW SLAVE STATUS\G" 2>/dev/null | grep "Seconds_Behind_Master:" | awk '{print $2}')
             
+            # Default to max lag if we couldn't get the value
+            lag=${lag:-999999}
+            
             if [ "$lag" -lt "$min_lag" ]; then
                 min_lag=$lag
                 best_slave=$node
@@ -106,7 +110,9 @@ select_new_master() {
         fi
     done
     
-    echo "$best_slave"
+    # Only output the node ID, nothing else
+    [ -n "$best_slave" ] && printf '%s' "$best_slave"
+    return 0
 }
 
 promote_new_master() {
