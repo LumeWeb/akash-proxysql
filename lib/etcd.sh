@@ -206,6 +206,26 @@ update_etcd_key() {
     return 0
 }
 
+# Delete a key from etcd
+# Parameters:
+#   $1: key to delete
+# Returns:
+#   0 on success, 1 on failure
+delete_etcd_key() {
+    local key=$1
+    
+    if [ -z "$key" ]; then
+        echo "Error: No key provided for deletion" >&2
+        return 1
+    fi
+    
+    if ! etcdctl --insecure-transport --insecure-skip-tls-verify del "$key" >/dev/null; then
+        echo "Error: Failed to delete etcd key: $key" >&2
+        return 1
+    fi
+    return 0
+}
+
 # Get a key's value with error handling
 get_etcd_key() {
     local key=$1

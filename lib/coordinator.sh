@@ -121,7 +121,7 @@ validate_master_key() {
     if [ -z "$master_info" ] || [ "$(echo "$master_info" | jq -r '.status')" != "online" ]; then
         echo "Warning: Master key points to non-existent or unhealthy node: $current_master"
         # Clear the stale master key
-        if ! etcdctl --insecure-transport --insecure-skip-tls-verify del "$ETCD_MASTER_KEY" >/dev/null; then
+        if ! delete_etcd_key "$ETCD_MASTER_KEY"; then
             echo "Error: Failed to clear stale master key" >&2
             return 1
         fi
@@ -170,9 +170,9 @@ check_cluster_health() {
         
         if [ -z "$node_info" ] || [ "$node_info" = "null" ]; then
             echo "WARNING: No info found for node $node, removing from etcd"
-            etcdctl --insecure-transport --insecure-skip-tls-verify del "$ETCD_NODES_PREFIX/$node"
+            delete_etcd_key "$ETCD_NODES_PREFIX/$node"
             continue
-        }
+        fi
         
         # Check if node info is valid
         if ! echo "$node_info" | jq -e 'has("host") and has("port")' >/dev/null 2>&1; then
