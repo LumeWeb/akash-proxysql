@@ -37,9 +37,15 @@ get_registered_nodes() {
         get "$ETCD_NODES_PREFIX/" --prefix --keys-only 2>&1) || return 1
     
     # Process only the actual node keys
-    echo "$nodes" | while read -r line; do
-        [[ "$line" =~ ^$ETCD_NODES_PREFIX/([^/]+)$ ]] && echo "${BASH_REMATCH[1]}"
-    done
+    local result=()
+    while read -r line; do
+        if [[ "$line" =~ ^$ETCD_NODES_PREFIX/([^/]+)$ ]]; then
+            result+=("${BASH_REMATCH[1]}")
+        fi
+    done <<< "$nodes"
+    
+    # Output results
+    printf '%s\n' "${result[@]}"
 }
 
 get_current_master() {
