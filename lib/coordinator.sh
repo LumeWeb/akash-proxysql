@@ -193,8 +193,8 @@ handle_master_failover() {
     fi
 
     # Update master in etcd with improved logging
-    echo "Promoting new master node: $new_master"
-    if ! update_etcd_key "$ETCD_MASTER_KEY" "$new_master"; then
+    echo "Promoting new master node: $new_master" >&2
+    if ! update_etcd_key "$ETCD_MASTER_KEY" "$new_master" 2>&2; then
         echo "ERROR: Failed to promote new master node: $new_master" >&2
         return 1
     fi
