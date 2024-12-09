@@ -59,7 +59,11 @@ main() {
         check_cluster_health
 
         # Handle any failed master
-        handle_master_failover
+        if ! handle_master_failover; then
+            echo "Warning: Failed to handle master failover, will retry on next iteration"
+            sleep "$check_interval"
+            continue
+        fi
 
         # Update ProxySQL configuration
         update_proxysql_routing
