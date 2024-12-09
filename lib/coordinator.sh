@@ -164,28 +164,46 @@ check_cluster_health() {
     
     for node in $nodes; do
         [ "${DEBUG:-0}" = "1" ] && echo "Checking health of node: $node"
-        local node_info
-        node_info=$(get_node_info "$node")
         
-        # Instead of failing, just log and continue if we can't get node info
-        if [ $? -ne 0 ] || [ -z "$node_info" ]; then
-            echo "WARNING: Could not get valid info for node $node, marking as failed"
-            # Update node as failed but don't exit
+        # Get current node info from etcd
+        local raw_info
+        raw_info=$(etcdctl --insecure-transport --insecure-skip-tls-verify get "$ETCD_NODES_PREFIX/$node" -w json)
+        
+        if [ -z "$raw_info" ] || [ "$raw_info" = "null" ]; then
+            echo "WARNING: No info found for node $node, marking as failed"
             update_node_status "$node" "failed"
             continue
         fi
 
-        # Check MySQL connectivity - only log status changes
-        local health_status
-        if check_mysql_health "$node" >/dev/null 2>&1; then
-            health_status="online"
+        # Extract and parse the actual node info
+        local node_info
+        node_info=$(echo "$raw_info" | jq -r '.kvs[0].value | @base64d')
+        
+        # Check if node info is valid
+        if ! echo "$node_info" | jq -e 'has("host") and has("port")' >/dev/null 2>&1; then
+            echo "WARNING: Invalid config for node $node, marking as failed"
+            update_node_status "$node" "failed"
+            continue
+        fi
+
+        # Check MySQL connectivity only if we have valid host/port
+        local health_status="failed"
+        local host port
+        host=$(echo "$node_info" | jq -r '.host')
+        port=$(echo "$node_info" | jq -r '.port')
+        
+        if [ -n "$host" ] && [ -n "$port" ] && [ "$host" != "null" ] && [ "$port" != "null" ]; then
+            if check_mysql_health "$node" >/dev/null 2>&1; then
+                health_status="online"
+            else
+                echo "Node $node health check failed"
+            fi
         else
-            health_status="failed"
-            echo "Node $node health check failed"
+            echo "Node $node missing valid host/port configuration"
         fi
 
         # Only update and log if status changed
-        if [ "$(echo "$node_info" | jq -r '.status')" != "$health_status" ]; then
+        if [ "$(echo "$node_info" | jq -r '.status // "unknown"')" != "$health_status" ]; then
             echo "Node $node status changed to: $health_status"
             update_node_status "$node" "$health_status"
         fi
