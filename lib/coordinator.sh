@@ -177,8 +177,6 @@ prune_stale_nodes() {
     current_time=$(date -u +%s)
     local has_errors=0
     
-    echo "Starting node pruning routine (max age: ${max_age}s)"
-    
     local nodes
     nodes=$(get_registered_nodes) || return 1
     
