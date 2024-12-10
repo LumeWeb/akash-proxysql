@@ -1,6 +1,9 @@
 #!/bin/bash
 set -eo pipefail
 
+# Track last promotion time for grace period
+declare -g LAST_PROMOTION_TIME=0
+
 source "${LIB_PATH}/config.sh"
 source "${LIB_PATH}/etcd.sh"
 source "${LIB_PATH}/mysql.sh"
@@ -120,6 +123,16 @@ validate_master_key() {
     
     # If no master key exists, that's valid (fresh cluster)
     if [ -z "$current_master" ]; then
+        return 0
+    fi
+    
+    # Skip validation if we're within grace period of promotion
+    local current_time
+    current_time=$(date +%s)
+    local grace_period=${PROMOTION_GRACE_PERIOD:-30}  # 30 second default
+    
+    if [ $((current_time - LAST_PROMOTION_TIME)) -lt "$grace_period" ]; then
+        echo "Within promotion grace period, skipping master validation"
         return 0
     fi
     
@@ -342,6 +355,8 @@ handle_master_failover() {
         return 1
     fi
 
+    LAST_PROMOTION_TIME=$(date +%s)
+    echo "Starting promotion grace period..."
     update_topology_for_new_master "$SELECTED_NODE"
     return 0
 }
