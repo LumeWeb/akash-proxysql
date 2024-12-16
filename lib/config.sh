@@ -6,8 +6,11 @@ if [[ ! "${ETCDCTL_USER}" =~ ^[^:]+:[^:]+$ ]]; then
     exit 1
 fi
 
+# Set default ETCD prefix if not provided
+ETC_PREFIX=${ETC_PREFIX:-"/mysql"}
+
 # ETCD paths configuration
-ETCD_BASE="/mysql"
+ETCD_BASE="${ETC_PREFIX}"
 ETCD_NODES_PREFIX="${ETCD_BASE}/nodes"
 ETCD_TOPOLOGY_PREFIX="${ETCD_BASE}/topology"
 ETCD_MASTER_KEY="${ETCD_TOPOLOGY_PREFIX}/master"

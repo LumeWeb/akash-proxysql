@@ -37,6 +37,7 @@ A ProxySQL-based MySQL coordinator that provides automatic failover, intelligent
 - `PROXYSQL_READER_HOSTGROUP`: Reader hostgroup ID (default: 20)
 - `S3_BACKUP_PREFIX`: Prefix for backup storage path (default: "proxysql/")
 - `BACKUP_RETENTION_DAYS`: Number of days to retain backups (default: 30)
+- `ETC_PREFIX`: Custom prefix for etcd keys (default: "/mysql")
 
 ## etcd Schema
 
