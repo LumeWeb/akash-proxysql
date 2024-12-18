@@ -46,4 +46,4 @@ fi
 
 echo "etcd is available, starting coordinator..."
 # Start the coordinator
-exec "${LIB_PATH}/coordinator.sh"
+source "${LIB_PATH}/coordinator.sh"
